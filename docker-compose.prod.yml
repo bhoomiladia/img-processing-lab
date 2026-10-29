@@ -1,0 +1,62 @@
+# Production stack: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+name: presently
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    command: ["postgres", "-c", "timezone=${TIMEZONE:-Asia/Kolkata}"]
+    environment:
+      POSTGRES_USER: attendance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: attendance
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attendance"]
+      interval: 5s
+      retries: 20
+    # No ports: the database is only reachable from the api container.
+
+  api:
+    build: ./ml-service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://attendance:${POSTGRES_PASSWORD}@db:5432/attendance
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.prod}
+      CORS_ORIGINS: '["https://${DOMAIN}"]'
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      MATCH_THRESHOLD: ${MATCH_THRESHOLD:-0.45}
+      MATCH_MARGIN: ${MATCH_MARGIN:-0.08}
+      TZ: ${TIMEZONE:-Asia/Kolkata}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: /api
+    restart: unless-stopped
+    depends_on: [api]
+
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env.prod}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web, api]
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
