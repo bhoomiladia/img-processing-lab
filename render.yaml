@@ -1,0 +1,51 @@
+# Render Blueprint: Dashboard → New → Blueprint → pick this repo.
+# Creates Postgres (pgvector), the ML/API service and the web app in one region.
+databases:
+  - name: presently-db
+    databaseName: attendance
+    user: attendance
+    plan: basic-256mb
+    region: singapore
+    postgresMajorVersion: "16"
+    ipAllowList: []          # no public access; services connect over Render's private network
+
+services:
+  - type: web
+    name: presently-api
+    runtime: docker
+    dockerContext: ./ml-service
+    dockerfilePath: ./ml-service/Dockerfile
+    region: singapore
+    plan: standard           # 2 GB RAM: the face model needs ~1.5 GB. Smaller plans run out of memory.
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: presently-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: ALLOW_SIGNUP
+        value: "true"
+      - key: MATCH_THRESHOLD
+        value: "0.45"
+      - key: MATCH_MARGIN
+        value: "0.08"
+
+  - type: web
+    name: presently-web
+    runtime: docker
+    dockerContext: ./web
+    dockerfilePath: ./web/Dockerfile
+    region: singapore
+    plan: starter
+    healthCheckPath: /login
+    envVars:
+      # The browser calls /api on this same site; the web service forwards it to the API privately.
+      - key: API_INTERNAL_URL
+        fromService:
+          type: web
+          name: presently-api
+          property: hostport

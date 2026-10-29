@@ -28,6 +28,7 @@ services:
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
       MATCH_THRESHOLD: ${MATCH_THRESHOLD:-0.45}
       MATCH_MARGIN: ${MATCH_MARGIN:-0.08}
+      TIMEZONE: ${TIMEZONE:-Asia/Kolkata}
       TZ: ${TIMEZONE:-Asia/Kolkata}
     depends_on:
       db:

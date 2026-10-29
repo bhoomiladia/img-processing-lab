@@ -14,6 +14,7 @@ def _configure(conn: psycopg.Connection) -> None:
     register_vector(conn)
     # HNSW returns at most ef_search rows; keep it above the candidate pool size.
     conn.execute(f"SET hnsw.ef_search = {max(100, settings.candidate_pool * 2)}")
+    conn.execute("SELECT set_config('TimeZone', %s, false)", (settings.timezone,))
     conn.commit()
 
 

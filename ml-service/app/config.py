@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     # Public /signup page. The very first account becomes admin; later ones are teachers awaiting approval.
     allow_signup: bool = True
     cors_origins: list[str] = ["http://localhost:3000"]
+    # Used for "today" in SQL; set per connection so managed databases need no server config.
+    timezone: str = "Asia/Kolkata"
 
     insightface_model: str = "buffalo_l"
     det_size: int = 640
