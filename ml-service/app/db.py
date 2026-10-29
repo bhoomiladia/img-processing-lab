@@ -20,8 +20,9 @@ def _configure(conn: psycopg.Connection) -> None:
 
 pool = ConnectionPool(
     settings.database_url,
-    min_size=1,
+    min_size=settings.db_pool_min_size,
     max_size=10,
+    max_idle=settings.db_pool_max_idle_s,
     open=False,
     configure=_configure,
     kwargs={"row_factory": dict_row},

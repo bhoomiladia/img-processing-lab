@@ -16,8 +16,11 @@ COPY --from=build --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app app ./app
 COPY --chown=app:app scripts ./scripts
 USER app
-# Bake the buffalo_l model into the image so containers start without a 280 MB download.
-RUN python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l', allowed_modules=['detection','recognition'], providers=['CPUExecutionProvider'])"
+# buffalo_l: most accurate, needs ~1.1 GB RAM. buffalo_sc: ~350 MB RAM, fits 512 MB free tiers.
+ARG INSIGHTFACE_MODEL=buffalo_l
+ENV INSIGHTFACE_MODEL=$INSIGHTFACE_MODEL
+# Bake the model into the image so containers start without downloading it.
+RUN python -c "import os; from insightface.app import FaceAnalysis; FaceAnalysis(name=os.environ['INSIGHTFACE_MODEL'], allowed_modules=['detection','recognition'], providers=['CPUExecutionProvider'])"
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD python -c "import os, urllib.request as u; u.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT', '8000'))"
 # One worker on purpose: enrollment drafts and liveness attempts live in process memory.

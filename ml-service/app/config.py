@@ -5,6 +5,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql://attendance:attendance@localhost:5433/attendance"
+    # 0 lets serverless databases (Neon) sleep when idle instead of being held awake.
+    db_pool_min_size: int = 1
+    db_pool_max_idle_s: float = 600
     jwt_secret: str = "dev-secret-change-me"
     jwt_ttl_hours: int = 12
     # Public /signup page. The very first account becomes admin; later ones are teachers awaiting approval.

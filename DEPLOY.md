@@ -1,8 +1,9 @@
 # Deploying Presently
 
-Two options:
+Three options:
 - **[Render](#option-a-render)**: managed hosting. No server to look after, deploys on every `git push`.
 - **[Your own server](#option-b-your-own-server)**: one Linux VM with Docker. Cheaper at scale, full control.
+- **[Free tier](#option-c-free-tier-cloud-run--neon--vercel)**: Google Cloud Run + Neon + Vercel. $0 within their free allowances.
 
 ---
 
@@ -202,3 +203,75 @@ scp local.dump ubuntu@<server IP>:/opt/presently/
 docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T db \
   pg_restore -U attendance -d attendance --clean --if-exists < local.dump
 ```
+
+---
+
+## Option C: Free tier (Cloud Run + Neon + Vercel)
+
+| Piece | Service | Free allowance (check current pages) |
+|---|---|---|
+| Face/API service | **Google Cloud Run** | ~180,000 vCPU-s, 360,000 GiB-s and 2M requests per month (request-based billing). Needs a billing account (card), but stays at $0 within the allowance |
+| Database | **Neon** Postgres | 0.5 GB storage and 100 CU-hours per project per month. pgvector included. Sleeps after 5 min idle |
+| Website | **Vercel** Hobby | Free for personal, non-commercial projects |
+
+Why not other free hosts: free Docker Spaces on Hugging Face now need a paid plan, and the
+512 MB / 0.1 CPU free tiers (Render, Koyeb) took 13–35 s per frame in testing.
+
+**Rough capacity on the free allowance:** one check-in is ~6 frames at ~0.2–0.3 s each. 500 students ×
+4 sessions/day × 22 days fits inside Cloud Run's free vCPU and memory seconds. Set a budget alert
+in case usage grows. Container images in Artifact Registry may cost a few cents per month beyond its free 0.5 GB.
+
+### 1. Database: Neon
+
+1. Sign up at neon.com and create a project (region: pick the one closest to your Cloud Run region, e.g. AWS US East for `us-central1`).
+2. **Connect** → choose the **direct** connection (not "Pooled"), copy the string. It looks like
+   `postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require`.
+3. Optional: in the compute settings, keep the max size at **0.25 CU** so the free CU-hours last.
+
+Tables and the pgvector extension are created automatically when the API first starts.
+
+### 2. Face/API service: Cloud Run
+
+Install the gcloud CLI (`brew install --cask google-cloud-sdk`), then:
+
+```bash
+gcloud auth login
+gcloud projects create presently-<something-unique> && gcloud config set project presently-<something-unique>
+# Link a billing account in the console (Billing → Link), then:
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+
+cd ~/my-projects/img-processing-lab
+gcloud run deploy presently-api --source ml-service --region us-central1 \
+  --memory 2Gi --cpu 1 --min-instances 0 --max-instances 1 --cpu-boost \
+  --allow-unauthenticated \
+  --set-env-vars "DATABASE_URL=<neon direct connection string>,JWT_SECRET=$(openssl rand -hex 32),DB_POOL_MIN_SIZE=0,DB_POOL_MAX_IDLE_S=120,TIMEZONE=Asia/Kolkata"
+```
+
+- The first build takes ~10 minutes. The command prints the service URL, e.g. `https://presently-api-xxxx-uc.a.run.app`.
+  Check it: `curl <URL>/health` → `{"ok":true}`.
+- `--max-instances 1` is required: in-progress enrollments and liveness checks live in memory.
+- `DB_POOL_MIN_SIZE=0` lets Neon sleep between classes so the free CU-hours last the month.
+- The first request after a quiet period takes ~20–40 s while the container starts. Open the kiosk a minute before class.
+- Billing → **Budgets & alerts**: create a ₹100 budget with email alerts.
+
+### 3. Website: Vercel
+
+1. Push the repo to GitHub (see Option A, step 1).
+2. vercel.com → **Add New → Project** → import the repo → set **Root Directory** to `web`.
+3. **Environment Variables**: `NEXT_PUBLIC_API_URL` = your Cloud Run URL (no trailing slash). Deploy.
+4. Allow the website to call the API (put your Vercel URL in):
+   ```bash
+   gcloud run services update presently-api --region us-central1 \
+     --update-env-vars 'CORS_ORIGINS=["https://presently.vercel.app"]'
+   ```
+5. Open the Vercel URL → **Create the admin account**.
+
+### Updating
+
+- Website: `git push` (Vercel redeploys automatically).
+- API: re-run the `gcloud run deploy presently-api --source ml-service --region us-central1` command
+  (existing env vars are kept).
+- Hitting the free limits? Switch to the small face model: it needs ~350 MB instead of ~1.1 GB, runs ~6×
+  faster, and is a little less accurate in poor light or at steep angles. Change the default in
+  `ml-service/Dockerfile` to `ARG INSIGHTFACE_MODEL=buffalo_sc`, deploy with `--memory 1Gi`, and re-enroll
+  everyone (templates from different models don't match).
